@@ -1,31 +1,43 @@
 # configs/erp_analysis.yaml
-# ERP analysis configuration. Paradigm-agnostic structure.
+# ERP analysis configuration — paired branch (2-condition comparison).
+#
+# Use this config when you want to compare two (or more) conditions directly,
+# e.g., condition A vs condition B, collapsed across all event codes per condition.
+#
+# For a multi-factor design (e.g., cue type × spatial side), use
+# template_erp_factorial.yaml instead.
+#
+# See configs/README.md for guidance on which config to use.
+# ============================================================================
 
 erp:
-  # Per-window analysis parameters
+  # Per-window analysis parameters.
+  # Window names must match the `name` field in your epoching_windows config.
   windows:
     - name: trial
       baseline: [-0.2, 0.0]   # baseline interval in seconds; null = no baseline
-      lowpass: 30             # Hz, analysis-time lowpass filter; null = none
+      lowpass: 30              # analysis-time lowpass filter (Hz); null = skip
     - name: cue
       baseline: [-0.2, 0.0]
       lowpass: 30
 
-  # Channel selection for averaging (passed to epochs.pick())
+  # Channel selection for averaging (passed to epochs.pick()).
+  # Typical values: 'eeg', 'meg', or a list of channel names.
   picks: eeg
 
   # Match trial counts across conditions before averaging?
-  # Recommended for between-condition comparisons.
+  # Recommended for between-condition comparisons to avoid bias.
   equalize_counts: true
 
-  # Subjects with fewer trials than this in any condition will be skipped
+  # Subjects with fewer trials than this in any condition are skipped
   # for that window. Set to 0 to disable.
   min_trials_per_condition: 10
 
-
-# ----------------------------------------------------------------------------
-# Conditions are defined PER WINDOW because event codes differ across windows
-# (trial window uses recoded memory-array codes; cue window uses raw cue codes)
+# ============================================================================
+# Conditions — defined per window because event codes can differ across windows.
+# Format: condition_name: [list of event codes]
+# All codes in a list are averaged together into a single condition.
+# ============================================================================
 conditions:
   trial:
     spatial:  [1020]
@@ -34,16 +46,14 @@ conditions:
     spatial:  [12, 13, 14, 21, 23, 24, 31, 32, 34, 41, 42, 43]
     symbolic: [112, 113, 114, 121, 123, 124, 131, 132, 134, 141, 142, 143]
 
+# ============================================================================
+# Contrasts — weighted linear combinations of conditions.
+# Format: contrast_name: {condition_name: weight, ...}
+# Standard subtraction: minuend = +1, subtrahend = -1
+# Remove or leave empty if no contrasts are needed.
+# ============================================================================
 contrasts:
   trial:
     spatial_vs_symbolic: {spatial: 1, symbolic: -1}
   cue:
     spatial_vs_symbolic: {spatial: 1, symbolic: -1}
-# ----------------------------------------------------------------------------
-# Contrasts: weighted linear combinations of conditions
-# Format: contrast_name: {condition_name: weight, ...}
-# Standard subtraction: minuend = +1, subtrahend = -1
-# Leave commented or remove the whole block if no contrasts are needed.
-# ----------------------------------------------------------------------------
-contrasts:
-  spatial_vs_symbolic: {spatial: 1, symbolic: -1}

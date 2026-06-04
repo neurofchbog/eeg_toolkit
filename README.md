@@ -23,9 +23,12 @@ code never needs to change between experiments or paradigms.
 
 ```
 eeg_toolkit/
-├── configs/                   # YAML config files (one per experiment/analysis)
-│   ├── template.yaml          # Annotated template — start here for a new experiment
-│   └── *.yaml                 # Your experiment configs
+├── configs/                        # YAML config files (one per experiment/analysis)
+│   ├── README.md                   # Decision guide: which config to use
+│   ├── template.yaml               # Pipeline config template (start here)
+│   ├── template_erp_paired.yaml    # ERP: 2-condition comparison template
+│   ├── template_erp_factorial.yaml # ERP: multi-factor design template
+│   └── template_tfr.yaml           # Time-frequency analysis template
 ├── eeg_toolkit/               # Importable Python package
 │   ├── config.py              # YAML loader (dot-accessible config object)
 │   ├── io.py                  # Subject discovery, path management, status tracking
@@ -44,7 +47,7 @@ eeg_toolkit/
 │   ├── mvpa.py                # Temporal decoding and cross-decoding
 │   └── rsa.py                 # Representational similarity analysis
 ├── notebooks/                 # Jupyter notebooks, one per pipeline step
-│   ├── preprocessing/         # Steps 00–07: raw → clean epochs
+│   ├── preprocessing/         # Steps 01–07: raw → clean epochs
 │   ├── erp/                   # ERP analysis (paired and factorial branches)
 │   ├── tfr/                   # Time-frequency analysis
 │   ├── mvpa/                  # Decoding analysis
@@ -99,7 +102,6 @@ cp configs/template.yaml configs/my_experiment.yaml
 The `notebooks/preprocessing/` folder walks through every preprocessing step:
 
 ```
-00_test_setup.ipynb       → verify paths and subject discovery
 01_raw2fif.ipynb          → convert raw recordings to FIF
 02_preprocessing.ipynb    → filter, montage, resample
 03_bad_channels.ipynb     → detect and review bad channels
@@ -131,7 +133,7 @@ All experiment-specific parameters are in the YAML config. Key sections:
 | `analysis.artifacts` | Peak-to-peak threshold, cross-window rejection propagation |
 | `reports` | HTML report generation |
 
-See `configs/template.yaml` for a fully annotated example.
+See `configs/template.yaml` for a fully annotated pipeline config example, and `configs/README.md` for a guide on which config template to use for each analysis type.
 
 ## Documentation
 

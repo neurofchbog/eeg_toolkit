@@ -1,36 +1,67 @@
+# configs/tfr_analysis.yaml
+# Time-frequency analysis configuration.
+#
+# Use this config to compute induced or evoked power (Morlet wavelets)
+# and run cluster-based permutation tests across conditions.
+#
+# Window names must match the `name` field in your main pipeline config's
+# epoching_windows section.
+#
+# See configs/README.md for guidance on which config to use.
+# ============================================================================
+
 tfr:
+  # Per-window analysis parameters.
   windows:
     - name: trial
-      baseline: [-0.5, -0.3]       # pre-memory-array baseline
+      baseline: [-0.5, -0.3]    # pre-stimulus baseline interval (seconds)
     - name: cue
-      baseline: [-0.3, -0.1]        # pre-cue baseline
+      baseline: [-0.3, -0.1]    # pre-cue baseline interval (seconds)
 
+  # Channel selection (passed to epochs.pick()).
   picks: eeg
 
   # Morlet wavelet parameters
   method: morlet
   freqs:
-    start: 4
-    stop: 40
-    step: 1                         # 39 frequencies: 2, 3, ..., 40 Hz
+    start: 4                     # lowest frequency (Hz)
+    stop: 40                     # highest frequency (Hz)
+    step: 1                      # frequency resolution (Hz)
 
-  n_cycles_mode: adaptive           # n_cycles = freqs / 2
-  n_cycles_min: 3                   # floor for lowest frequencies
+  # Number of cycles per wavelet.
+  # 'adaptive': n_cycles = freqs / 2 (good time-frequency trade-off)
+  # Or set a fixed integer, e.g.: n_cycles: 7
+  n_cycles_mode: adaptive
+  n_cycles_min: 3                # minimum cycles floor for low frequencies
 
-  # Power decomposition
-  decomposition: induced            # subtract condition ERP before TFR
+  # Power decomposition:
+  #   'induced'  — subtract the condition ERP before computing TFR
+  #                (removes phase-locked activity, isolates induced power)
+  #   'evoked'   — compute TFR on the averaged ERP
+  #   'total'    — compute TFR on single trials without subtraction
+  decomposition: induced
 
-  # Baseline correction
-  baseline_mode: logratio           # log10(power / mean_baseline)
+  # Baseline correction mode applied after computing power:
+  #   'logratio'  — log10(power / mean_baseline)  [default, decibel-like]
+  #   'ratio'     — power / mean_baseline
+  #   'zscore'    — (power - mean_baseline) / std_baseline
+  #   'percent'   — (power - mean_baseline) / mean_baseline * 100
+  baseline_mode: logratio
 
-  # Performance
-  decim: 2                          # this is the resampling
+  # Downsample the TFR output time axis by this factor after computation.
+  # Reduces file size and computation time. 1 = no downsampling.
+  decim: 2
+
+  # Number of parallel jobs for TFR computation. -1 = use all available cores.
   n_jobs: 4
 
-  # Subject filtering
+  # Subjects with fewer trials than this in any condition are skipped.
   min_trials_per_condition: 10
 
-# Condition codes — per-window (same structure as erp_analysis.yaml)
+# ============================================================================
+# Conditions — defined per window (same structure as erp_analysis.yaml).
+# Format: condition_name: [list of event codes]
+# ============================================================================
 conditions:
   trial:
     spatial:  [1020]
@@ -39,6 +70,10 @@ conditions:
     spatial:  [12, 13, 14, 21, 23, 24, 31, 32, 34, 41, 42, 43]
     symbolic: [112, 113, 114, 121, 123, 124, 131, 132, 134, 141, 142, 143]
 
+# ============================================================================
+# Contrasts — weighted linear combinations of conditions.
+# Format: contrast_name: {condition_name: weight, ...}
+# ============================================================================
 contrasts:
   trial:
     spatial_vs_symbolic: {spatial: 1, symbolic: -1}

@@ -1,0 +1,59 @@
+# configs/template_erp_factorial.yaml
+# EEG Toolkit — ERP Analysis Template (Factorial / multi-condition branch)
+#
+# USE THIS WHEN:
+#   - You have multiple factors to cross (e.g., cue type × spatial side)
+#   - You want to run a repeated-measures ANOVA
+#   - You have many conditions (> 3) and want to keep them all separate
+#   - You plan to collapse or contrast conditions inline in the notebooks
+#
+# WHEN NOT TO USE:
+#   - You just want a simple A vs B comparison → use template_erp_paired.yaml
+#
+# HOW TO USE:
+#   1. Copy this file: cp template_erp_factorial.yaml my_factorial_analysis.yaml
+#   2. Define all your condition levels with their event codes
+#   3. In your notebook: load_config('configs/my_factorial_analysis.yaml')
+#
+# See configs/README.md for the full decision guide.
+# ============================================================================
+
+erp:
+  # Suffix added to all output filenames for this analysis.
+  # Recommended to avoid overwriting paired-branch outputs.
+  analysis_name: factorial       # e.g., outputs will be subj*_cue_factorial_ave.fif
+
+  # Per-window analysis parameters.
+  windows:
+    - name: stimulus             # replace with your window name
+      baseline: [-0.2, 0.0]
+      lowpass: 30
+
+  picks: eeg
+
+  # Typically false for factorial designs — too many conditions,
+  # too few trials each to equalize meaningfully.
+  equalize_counts: false
+
+  min_trials_per_condition: 5
+
+# ============================================================================
+# Conditions — one entry per cell of your factorial design.
+#
+# Naming convention (recommended): factor1_level_factor2_level
+# This lets notebooks parse condition names into factors using str.split('_').
+#
+# Example: 2 (cue type) × 2 (side) = 4 conditions
+# ============================================================================
+conditions:
+  stimulus:
+    # Factor 1: cue_type (spatial, symbolic)
+    # Factor 2: side (left, right)
+    spatial_left:    [11, 12]    # replace with your codes
+    spatial_right:   [13, 14]
+    symbolic_left:   [21, 22]
+    symbolic_right:  [23, 24]
+
+    # Add more conditions as needed for your design.
+    # No contrasts needed here — define them inline in the analysis notebook
+    # after collapsing conditions with pandas.
