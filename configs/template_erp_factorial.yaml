@@ -1,5 +1,5 @@
 # configs/template_erp_factorial.yaml
-# EEG Toolkit — ERP Analysis Template (Factorial / multi-condition branch)
+# EEG Toolkit — ERP Analysis Template (Factorial / multi-condition branch) - Test from main branch
 #
 # USE THIS WHEN:
 #   - You have multiple factors to cross (e.g., cue type × spatial side)
