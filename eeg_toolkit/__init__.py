@@ -124,14 +124,6 @@ from eeg_toolkit.mvpa import (
     load_subject_scores,
     load_all_scores,
     get_decode_path,
-)
-
-from eeg_toolkit.mvpa import (
-    decode_subject,
-    decode_all,
-    load_subject_scores,
-    load_all_scores,
-    get_decode_path,
     cross_decode_subject,
     cross_decode_all,
     load_all_cross_scores,

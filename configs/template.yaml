@@ -1,0 +1,199 @@
+# ============================================================================
+# EEG Toolkit — Config Template
+# ============================================================================
+# Copy this file, rename it for your experiment, and fill in your values.
+# All experiment-specific parameters live here. The Python code never changes.
+#
+# Usage:
+#   from eeg_toolkit import load_config
+#   cfg = load_config('configs/my_experiment.yaml')
+# ============================================================================
+
+# A short label for this experiment or analysis (used in reports and logs).
+paradigm: MyExperiment
+
+# ============================================================================
+# Paths
+# ============================================================================
+paths:
+  # Directory containing your raw recordings (read-only — never modified).
+  # Supported formats: XDF, EDF, BDF, FIF, etc.
+  raw_dir: /path/to/raw/data
+
+  # Root directory for all analysis outputs.
+  base_dir: /path/to/analysis/root
+
+  # Subfolder under base_dir for this specific analysis.
+  # Useful if you run multiple analyses on the same dataset.
+  # Output path will be: <base_dir>/<analysis_folder>/
+  analysis_folder: analisis_eeg
+
+  # Prefix used to identify subject folders/files (e.g., "sub", "subj", "p").
+  # Subjects are detected as any folder/file starting with this prefix.
+  subject_prefix: sub
+
+# ============================================================================
+# Subject exclusions
+# ============================================================================
+# List subject IDs to exclude from all analyses.
+# Leave empty ([]) to include all subjects.
+excluded_subjects:
+  # - sub01   # example: pilot session
+  # - sub05   # example: excessive artifacts
+
+# ============================================================================
+# Preprocessing
+# ============================================================================
+preprocessing:
+  filter:
+    # High-pass cutoff (Hz). Typical: 0.1–1.0 for ERP, 1.0 for TFR/MVPA.
+    low_freq: 0.1
+    # Low-pass cutoff (Hz). Typical: 40–100 Hz.
+    high_freq: 40.0
+    # Filter method: 'fir' (default, linear phase) or 'iir' (faster, causal).
+    method: fir
+    # IIR-only options (ignored if method is 'fir'):
+    # iir_order: 4
+    # iir_ftype: butter
+
+  # Resample frequency (Hz). Set to null to skip resampling.
+  # Resampling happens after filtering to avoid aliasing.
+  resample_sfreq: 256
+
+  # Standard MNE montage name, e.g.: standard_1020, biosemi64, easycap-M1
+  # See mne.channels.get_builtin_montages() for the full list.
+  montage: standard_1020
+
+  # Channel names to relabel as EOG if present in the raw data.
+  # These channels will be used by ICA for EOG artifact detection.
+  eog_candidates:
+    - HEOG
+    # - VEOG
+    # - AUX_1
+
+# ============================================================================
+# Event recoding rules
+# ============================================================================
+# Define rules to transform raw trigger codes into analysis-ready event codes.
+# Rules are applied in order. Each rule adds new events to the existing array
+# (unless replace: true is set).
+#
+# Rule types:
+#
+#   recodify_by_next — recode an event based on which event follows it.
+#     source_code:      the raw code to recode
+#     look_ahead_codes: list of conditions; first match wins
+#       next_in:        list of raw codes that trigger this condition
+#       output_code:    the new code to emit
+#     replace:          if true, remove the original source_code event
+#
+# Leave as an empty list ([]) if your raw event codes need no transformation.
+# ============================================================================
+event_rules: []
+
+# Example:
+# event_rules:
+#   - name: tag_stimulus_by_condition
+#     type: recodify_by_next
+#     source_code: 10          # raw "stimulus onset" code
+#     look_ahead_codes:
+#       - next_in: [21, 22]    # followed by condition A codes
+#         output_code: 110     # → new code for "stimulus, condition A"
+#       - next_in: [31, 32]    # followed by condition B codes
+#         output_code: 120     # → new code for "stimulus, condition B"
+#     replace: false
+
+# ============================================================================
+# Epoching windows
+# ============================================================================
+# Define one or more time-locked windows. Each produces an independent FIF
+# file and can have its own event codes, time range, and baseline.
+#
+# Mark exactly ONE window with `use_for_ica: true`. ICA is fit on that window
+# and the solution is applied to all other windows automatically.
+#
+# Tip: disable baseline and peak-to-peak rejection here; apply them
+# downstream after ICA and artifact rejection.
+# ============================================================================
+epoching_windows:
+  - name: stimulus             # short identifier used in filenames
+    description: Stimulus-locked window, all conditions
+    events: [10, 20]           # list of event codes to epoch on
+    tmin: -0.2                 # start of window relative to event (seconds)
+    tmax: 1.0                  # end of window relative to event (seconds)
+    baseline: null             # apply later; or set to [tmin, 0] to apply now
+    reject_peak_to_peak: null  # apply later; or set to e.g. 150e-6 (Volts)
+    decim: 1                   # decimation factor (1 = no decimation)
+    use_for_ica: true          # fit ICA on this window
+
+  # Add more windows as needed:
+  # - name: response
+  #   description: Response-locked window
+  #   events: [90, 91]
+  #   tmin: -0.5
+  #   tmax: 0.5
+  #   baseline: null
+  #   reject_peak_to_peak: null
+  #   decim: 1
+  #   use_for_ica: false
+
+# ============================================================================
+# ICA parameters
+# ============================================================================
+ica:
+  # Number of ICA components to fit. Rule of thumb: rank of the data
+  # (number of channels minus number of interpolated bad channels).
+  n_components: 20
+
+  # ICA algorithm: 'infomax' (recommended) or 'fastica' or 'picard'.
+  method: infomax
+  fit_params:
+    extended: true   # extended infomax — handles sub- and super-Gaussian sources
+
+  # Random seed for reproducibility.
+  random_state: 97
+
+  iclabel:
+    # Use ICLabel to automatically classify and reject artifactual components.
+    enabled: true
+    # Component types to auto-reject when probability exceeds the threshold.
+    # Available labels: eye blink, muscle artifact, heart beat, line noise,
+    #                   channel noise, other
+    reject_labels:
+      - eye blink
+      - muscle artifact
+      - heart beat
+      - line noise
+      - channel noise
+    # Rejection probability threshold (0–1). Higher = more conservative.
+    prob_threshold: 0.7
+
+# ============================================================================
+# Artifact rejection
+# ============================================================================
+analysis:
+  artifacts:
+    # Peak-to-peak amplitude threshold for trial rejection (Volts).
+    # Epochs exceeding this in any EEG channel are marked as bad.
+    p2p_threshold: 150e-6
+
+    # Threshold for flat-line detection (Volts). Epochs below this are rejected.
+    flatline_threshold: 1e-6
+
+    # Which epoching window to use for the primary visual inspection.
+    # Must match the `name` field of one of the epoching_windows above.
+    inspect_window: stimulus
+
+    # After rejecting trials in inspect_window, propagate the same rejections
+    # to these other windows so all windows stay in sync.
+    propagate_to: []
+    #   - response
+
+# ============================================================================
+# Report generation
+# ============================================================================
+reports:
+  # Generate an MNE HTML report per subject after preprocessing.
+  generate_html: true
+  # Subfolder under the subject's analysis directory for reports.
+  output_subfolder: reports
