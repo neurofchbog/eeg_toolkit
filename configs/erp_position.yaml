@@ -1,0 +1,33 @@
+erp:
+  analysis_name: position    # adds '_position' suffix to all output files
+
+  windows:
+    - name: cue
+      baseline: [-0.2, 0.0]
+      lowpass: 30
+
+  picks: eeg
+  equalize_counts: false      # don't equalize - too many conditions
+  min_trials_per_condition: 5
+
+conditions:
+  cue:
+    # SPATIAL BLOCKS: position = target, digit = distractor
+    spatial_target_pos1: [21, 31, 41]
+    spatial_target_pos2: [12, 32, 42]
+    spatial_target_pos3: [13, 23, 43]
+    spatial_target_pos4: [14, 24, 34]
+    spatial_distractor_dig1: [12, 13, 14]
+    spatial_distractor_dig2: [21, 23, 24]
+    spatial_distractor_dig3: [31, 32, 34]
+    spatial_distractor_dig4: [41, 42, 43]
+
+    # SYMBOLIC BLOCKS: digit = target, position = distractor
+    symbolic_target_dig1: [112, 113, 114]
+    symbolic_target_dig2: [121, 123, 124]
+    symbolic_target_dig3: [131, 132, 134]
+    symbolic_target_dig4: [141, 142, 143]
+    symbolic_distractor_pos1: [121, 131, 141]
+    symbolic_distractor_pos2: [112, 132, 142]
+    symbolic_distractor_pos3: [113, 123, 143]
+    symbolic_distractor_pos4: [114, 124, 134]

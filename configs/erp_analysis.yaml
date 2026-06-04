@@ -1,0 +1,49 @@
+# configs/erp_analysis.yaml
+# ERP analysis configuration. Paradigm-agnostic structure.
+
+erp:
+  # Per-window analysis parameters
+  windows:
+    - name: trial
+      baseline: [-0.2, 0.0]   # baseline interval in seconds; null = no baseline
+      lowpass: 30             # Hz, analysis-time lowpass filter; null = none
+    - name: cue
+      baseline: [-0.2, 0.0]
+      lowpass: 30
+
+  # Channel selection for averaging (passed to epochs.pick())
+  picks: eeg
+
+  # Match trial counts across conditions before averaging?
+  # Recommended for between-condition comparisons.
+  equalize_counts: true
+
+  # Subjects with fewer trials than this in any condition will be skipped
+  # for that window. Set to 0 to disable.
+  min_trials_per_condition: 10
+
+
+# ----------------------------------------------------------------------------
+# Conditions are defined PER WINDOW because event codes differ across windows
+# (trial window uses recoded memory-array codes; cue window uses raw cue codes)
+conditions:
+  trial:
+    spatial:  [1020]
+    symbolic: [1120]
+  cue:
+    spatial:  [12, 13, 14, 21, 23, 24, 31, 32, 34, 41, 42, 43]
+    symbolic: [112, 113, 114, 121, 123, 124, 131, 132, 134, 141, 142, 143]
+
+contrasts:
+  trial:
+    spatial_vs_symbolic: {spatial: 1, symbolic: -1}
+  cue:
+    spatial_vs_symbolic: {spatial: 1, symbolic: -1}
+# ----------------------------------------------------------------------------
+# Contrasts: weighted linear combinations of conditions
+# Format: contrast_name: {condition_name: weight, ...}
+# Standard subtraction: minuend = +1, subtrahend = -1
+# Leave commented or remove the whole block if no contrasts are needed.
+# ----------------------------------------------------------------------------
+contrasts:
+  spatial_vs_symbolic: {spatial: 1, symbolic: -1}

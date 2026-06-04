@@ -1,0 +1,148 @@
+# ============================================================================
+# Configuration: Simultaneous paradigm, full-trial analysis window
+# ============================================================================
+paradigm: Simultaneous
+paths:
+  # Where the raw recordings live (read-only — never modified)
+  raw_dir: C:\Users\juapa\OneDrive\Documentos\Proyecto doctorado\Experimentos_proyecto_tesis\Experimentos Eye Tracker\Datos
+  # Root for all analyses (parent of analisis_eeg, analisis_behavior, etc.)
+  base_dir: C:\Users\juapa\OneDrive\Documentos\Proyecto doctorado\Experimentos_proyecto_tesis\Experimentos Eye Tracker\analisis
+  # Subfolder under base_dir for THIS specific analysis
+  analysis_folder: analisis_eeg
+  # Prefix used to detect subject folders (e.g., "subj1", "subj2"...)
+  subject_prefix: subj
+# =====================================================================
+
+# ============================================================================
+# Subjects to exclude from all EEG analyses
+# ============================================================================
+# These exclusions come from the companion behavioral analysis (R pipeline).
+# To re-run with a different exclusion set, simply edit this list.
+excluded_subjects:
+  # Manual exclusions (design issues identified during acquisition)
+  # Pre-study test sessions (piloting data, not real participants)
+  - subj1
+  - subj11
+  - subj12
+  - subj16
+  - subj17
+  # Design issues identified during acquisition
+  - subj7
+  - subj9
+  # Performance-based exclusions (overall accuracy < 65%)
+  - subj2
+  - subj20
+  - subj28
+  # Behavioral data missing (no PsychoPy CSV available)
+  - subj13
+  - subj15
+#  =======
+# Preprocessing parameters
+# ============================================================================
+preprocessing:
+  filter:
+    low_freq: 0.5
+    high_freq: 40.0
+    method: iir
+    iir_order: 4
+    iir_ftype: butter
+  resample_sfreq: 256
+  montage: standard_1020
+  # Channels to relabel as EOG if present in the raw data
+  eog_candidates:
+    - AUX_1
+    - HEOG
+# ============================================================================
+# Event recoding rules
+# ============================================================================
+# Each rule produces one or more derived events from the raw event stream.
+# Derived events are added to the original events array (not replacing it),
+# unless `replace: true` is specified at the rule level.
+# ============================================================================
+event_rules:
+
+  # Tag memory array (20) with the type of cue that follows it.
+  # Spatial cues are 12-43; symbolic cues are 112-143.
+  # The recoded events will be:
+  #   1020 = memory array, spatial-block trial
+  #   1120 = memory array, symbolic-block trial
+  - name: tag_memory_array_by_cue_type
+    type: recodify_by_next
+    source_code: 20
+    look_ahead_codes:
+      - next_in: [12, 13, 14, 21, 23, 24, 31, 32, 34, 41, 42, 43]
+        output_code: 1020
+      - next_in: [112, 113, 114, 121, 123, 124, 131, 132, 134, 141, 142, 143]
+        output_code: 1120
+    replace: false
+
+# ============================================================================
+# Epoching windows
+# ============================================================================
+# One entry per window. Each produces an independent .fif file.
+# Mark exactly ONE window with `use_for_ica: true`. ICA is fit on that one
+# and the resulting solution is applied to ALL windows.
+#
+# Note: baseline correction and peak-to-peak rejection are intentionally
+# disabled at epoching time. They will be applied downstream in dedicated
+# steps (baseline at analysis time, rejection after ICA).
+# ============================================================================
+epoching_windows:
+  - name: trial
+    description: Full trial, locked to memory array (recoded 21=spatial, 22=symbolic)
+    events: [1020, 1120]
+    tmin: -0.5
+    tmax: 6.0
+    baseline: null
+    reject_peak_to_peak: null
+    decim: 1
+    use_for_ica: true
+
+  - name: cue
+    description: Cue-locked, all spatial (12-43) and symbolic (112-143) codes
+    events: [12, 13, 14, 21, 23, 24, 31, 32, 34, 41, 42, 43,
+             112, 113, 114, 121, 123, 124, 131, 132, 134, 141, 142, 143]
+    tmin: -0.3
+    tmax: 1.5
+    baseline: null
+    reject_peak_to_peak: null
+    decim: 1
+    use_for_ica: false
+# ============================================================================
+# ICA parameters
+# ============================================================================
+ica:
+  n_components: 20
+  method: infomax
+  fit_params:
+    extended: true
+  random_state: 97
+  iclabel:
+    enabled: true
+    # Components classified as these labels with prob > threshold are auto-excluded
+    reject_labels:
+      - eye blink
+      - muscle artifact
+      - heart beat
+      - line noise
+      - channel noise
+    prob_threshold: 0.7
+
+# ============================================================================
+# Epoch rejection parameters
+# ============================================================================
+
+analysis:
+  artifacts:
+    p2p_threshold: 150e-6
+    flatline_threshold: 1e-6
+    inspect_window: trial
+    propagate_to:
+      - cue
+
+# ============================================================================
+# Report generation
+# ============================================================================
+reports:
+  generate_html: true
+  output_subfolder: reports

@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# EEG / MNE data files (large binary — keep out of git)
+*.fif
+*.fif.gz
+*.set
+*.edf
+*.bdf
+*.xdf
+*.cnt
+*.vhdr
+*.vmrk
+*.eeg
+*.mat
+*.hdf5
+*.h5
+
+# Reports
+*_report.html
+
+# Behavioral / analysis outputs
+subjects_status.csv
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+.Rhistory
+*.Rhistory
+
+# IDE
+.vscode/
+.idea/

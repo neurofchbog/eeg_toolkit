@@ -1,0 +1,46 @@
+tfr:
+  windows:
+    - name: trial
+      baseline: [-0.5, -0.3]       # pre-memory-array baseline
+    - name: cue
+      baseline: [-0.3, -0.1]        # pre-cue baseline
+
+  picks: eeg
+
+  # Morlet wavelet parameters
+  method: morlet
+  freqs:
+    start: 4
+    stop: 40
+    step: 1                         # 39 frequencies: 2, 3, ..., 40 Hz
+
+  n_cycles_mode: adaptive           # n_cycles = freqs / 2
+  n_cycles_min: 3                   # floor for lowest frequencies
+
+  # Power decomposition
+  decomposition: induced            # subtract condition ERP before TFR
+
+  # Baseline correction
+  baseline_mode: logratio           # log10(power / mean_baseline)
+
+  # Performance
+  decim: 2                          # this is the resampling
+  n_jobs: 4
+
+  # Subject filtering
+  min_trials_per_condition: 10
+
+# Condition codes — per-window (same structure as erp_analysis.yaml)
+conditions:
+  trial:
+    spatial:  [1020]
+    symbolic: [1120]
+  cue:
+    spatial:  [12, 13, 14, 21, 23, 24, 31, 32, 34, 41, 42, 43]
+    symbolic: [112, 113, 114, 121, 123, 124, 131, 132, 134, 141, 142, 143]
+
+contrasts:
+  trial:
+    spatial_vs_symbolic: {spatial: 1, symbolic: -1}
+  cue:
+    spatial_vs_symbolic: {spatial: 1, symbolic: -1}
