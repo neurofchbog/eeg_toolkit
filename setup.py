@@ -19,6 +19,7 @@ setup(
         "PyQt5",
         "mne-icalabel",
         "rsatoolbox",
+        "meegkit",
     ],
     extras_require={
         "dev": ["pytest", "jupyter"],

@@ -3,10 +3,11 @@ Preprocessing module for raw EEG data.
 
 Applies a standard pipeline to each subject's raw FIF:
     1. Band-pass filter (Butterworth IIR by default)
-    2. Mark candidate channels as EOG if present
-    3. Apply electrode montage (standard_1020 by default)
-    4. Resample to target sample rate (events are adjusted accordingly)
-    5. Save as <subj>_preprocessed_raw.fif and <subj>_preprocessed_events.fif
+    2. Notch filter for line noise (optional, e.g. 50/60 Hz)
+    3. Mark candidate channels as EOG if present
+    4. Apply electrode montage (standard_1020 by default)
+    5. Resample to target sample rate (events are adjusted accordingly)
+    6. Save as <subj>_preprocessed_raw.fif and <subj>_preprocessed_events.fif
 
 All parameters come from the YAML config (under `preprocessing`).
 """
@@ -57,6 +58,61 @@ def apply_filter(raw, cfg, verbose=True):
     if verbose:
         print(f"   filter: {f.low_freq}-{f.high_freq} Hz "
               f"({f.method}, order {f.iir_order})")
+    return raw
+
+
+def apply_line_noise_removal(raw, cfg, verbose=True):
+    """
+    Remove line noise using Zapline (DSS-based) or a standard notch filter.
+
+    Reads from ``cfg.preprocessing``:
+        notch_freq : float or list
+            Line noise frequency (e.g. 60 or [50, 100]).
+            If absent, ``None``, or ``0``, this step is silently skipped.
+        notch_method : str, optional
+            ``'zapline'`` (default) — frequency-domain regression via meegkit.
+            Removes line noise without distorting nearby frequencies.
+            ``'notch'`` — standard MNE notch filter. Simple but carves a
+            narrow band out of the spectrum.
+
+    Zapline requires the ``meegkit`` package (``pip install meegkit``).
+    """
+    notch = getattr(cfg.preprocessing, "notch_freq", None)
+    if not notch:
+        return raw
+
+    method = getattr(cfg.preprocessing, "notch_method", "zapline")
+    freqs = notch if isinstance(notch, list) else [notch]
+
+    if method == "zapline":
+        try:
+            from meegkit.dss import dss_line
+        except ImportError:
+            raise ImportError(
+                "meegkit is required for Zapline line-noise removal. "
+                "Install it with: pip install meegkit"
+            )
+
+        data = raw.get_data().T  # (n_samples, n_channels)
+        sfreq = raw.info["sfreq"]
+
+        for fline in freqs:
+            data, _ = dss_line(data, fline=fline, sfreq=sfreq)
+
+        raw._data = data.T  # back to (n_channels, n_samples)
+        if verbose:
+            print(f"   line noise removal: Zapline at {freqs} Hz")
+
+    elif method == "notch":
+        raw.notch_filter(freqs, verbose="WARNING")
+        if verbose:
+            print(f"   line noise removal: notch filter at {freqs} Hz")
+
+    else:
+        raise ValueError(
+            f"Unknown notch_method '{method}'. Use 'zapline' or 'notch'."
+        )
+
     return raw
 
 
@@ -187,16 +243,19 @@ def preprocess_subject(cfg, subject, overwrite=False, verbose=True):
     # 2. Filter
     raw = apply_filter(raw, cfg, verbose=verbose)
 
-    # 3. EOG assignment
+    # 3. Line noise removal (Zapline or notch)
+    raw = apply_line_noise_removal(raw, cfg, verbose=verbose)
+
+    # 4. EOG assignment
     raw, eog_channels = assign_eog_channels(raw, cfg, verbose=verbose)
 
-    # 4. Montage
+    # 5. Montage
     raw = apply_montage(raw, cfg, verbose=verbose)
 
-    # 5. Resample
+    # 6. Resample
     raw, events = resample_with_events(raw, events, cfg, verbose=verbose)
 
-    # 6. Save
+    # 7. Save
     raw.save(raw_out, overwrite=True, verbose="WARNING")
     if events is not None:
         mne.write_events(events_out, events, overwrite=True, verbose="WARNING")
