@@ -2,17 +2,27 @@
 Multivariate pattern analysis (MVPA) — temporal decoding.
 
 Paradigm-agnostic time-resolved classification of EEG epochs.
-Conditions are passed directly in code (no YAML config) so that users
-can define any binary comparison from the notebook without editing
-config files.
+Supports both binary and multiclass decoding.
+
+Two ways to define what to decode:
+
+1. **Event-code conditions** (``conditions`` parameter):
+   ``{'spatial': [9,10,11,12], 'symbolic': [5,6,7,8]}``
+   Epochs are selected by event code. Works for any number of classes.
+
+2. **External labels** (``labels`` parameter):
+   Pass a pre-built label array aligned to the epochs (e.g., from
+   behavioral data). Use ``align_epochs_behavior()`` to align a
+   behavioral DataFrame with epochs via the drop log.
 
 Workflow
 --------
 1. decode_subject / decode_all
-   Load final epochs → optional resample → select conditions → build X, y
-   → SlidingEstimator (StandardScaler + classifier) → cross-validated accuracy
-   → optional: decision function distances, temporal generalization
-   → optional: null permutation(s) with shuffled labels
+   Load final epochs → optional resample → select conditions or use
+   provided labels → build X, y → SlidingEstimator (StandardScaler +
+   classifier) → cross-validated accuracy
+   → optional: decision function distances (binary only),
+   temporal generalization, null permutation(s)
    → save per-subject .npz
 
 2. load_subject_scores / load_all_scores
@@ -121,10 +131,70 @@ def _select_condition_epochs(epochs, event_ids):
 
 
 # ===================================================================
+# Behavioral data alignment
+# ===================================================================
+
+def align_epochs_behavior(epochs, beh_df):
+    """
+    Align a behavioral DataFrame with epochs using the drop log.
+
+    When epochs are created from all events in a recording (not just the
+    task-relevant ones), ``epochs.selection`` indexes into the full event
+    array rather than trial numbers.  This function uses ``drop_log`` to
+    identify which task trials survived artifact rejection.
+
+    Parameters
+    ----------
+    epochs : mne.Epochs
+        Loaded epochs (already artifact-rejected).
+    beh_df : pandas.DataFrame
+        Behavioral data for this subject, one row per trial, in trial
+        order. Must have the same number of rows as the number of
+        task-relevant events in the original recording.
+
+    Returns
+    -------
+    beh_aligned : pandas.DataFrame
+        Subset of ``beh_df`` matching the surviving epochs, reset-indexed.
+
+    Raises
+    ------
+    ValueError
+        If the number of task-relevant events in the drop log does not
+        match the number of rows in ``beh_df``.
+
+    Examples
+    --------
+    >>> epochs = mne.read_epochs(path, preload=True)
+    >>> subj_beh = beh_all[beh_all['subject'] == 'subj1'].reset_index(drop=True)
+    >>> beh_aligned = align_epochs_behavior(epochs, subj_beh)
+    >>> # beh_aligned has len(epochs) rows, one per surviving epoch
+    """
+    cue_trial = 0
+    kept_trials = []
+    for dl in epochs.drop_log:
+        if "IGNORED" in dl:
+            continue  # non-task event
+        if len(dl) == 0:
+            kept_trials.append(cue_trial)  # survived rejection
+        cue_trial += 1
+
+    if cue_trial != len(beh_df):
+        raise ValueError(
+            f"Mismatch: {cue_trial} task events in drop_log vs "
+            f"{len(beh_df)} rows in behavioral data"
+        )
+
+    return beh_df.iloc[kept_trials].reset_index(drop=True)
+
+
+# ===================================================================
 # Per-subject decoding
 # ===================================================================
 
-def decode_subject(cfg, subject, window_name, conditions, analysis_name,
+def decode_subject(cfg, subject, window_name, analysis_name,
+                   conditions=None, labels=None, trial_mask=None,
+                   chance_level=None,
                    classifier="linear_svc", n_folds=5, n_repeats=1,
                    resample_sfreq=None, baseline=None, picks="eeg",
                    compute_distances=False, compute_temporal_gen=False,
@@ -132,6 +202,10 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
                    overwrite=False, verbose=True):
     """
     Run time-resolved decoding for a single subject.
+
+    Supports binary and multiclass classification. Conditions can be
+    defined by event codes (``conditions``) or by an external label
+    array (``labels``). Exactly one of the two must be provided.
 
     Incremental: if a previous result exists on disk and ``overwrite=False``,
     only the newly requested features (distances, temporal generalization,
@@ -146,11 +220,28 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
         Subject ID.
     window_name : str
         Epoch window to load (e.g., 'cue', 'trial').
-    conditions : dict
-        Exactly two conditions: {label: [event_codes]}.
-        Example: {'spatial': [12, 13, ...], 'symbolic': [112, 113, ...]}
     analysis_name : str
         Label for this analysis — used in the output filename.
+    conditions : dict or None
+        Conditions defined by event codes: {label: [event_codes]}.
+        Any number of conditions (2 or more).
+        Example binary: {'spatial': [9,10,11,12], 'symbolic': [5,6,7,8]}
+        Example 4-class: {'pos1': [5,9], 'pos2': [6,10], ...}
+        Mutually exclusive with ``labels``.
+    labels : array-like or None
+        Pre-built label array, one per epoch (after applying
+        ``trial_mask`` if provided). Use when labels come from
+        behavioral data rather than event codes. Labels can be
+        integers or strings (will be encoded automatically).
+        Mutually exclusive with ``conditions``.
+    trial_mask : array-like of bool or None
+        Boolean mask to select a subset of epochs before decoding.
+        Must have the same length as the total number of epochs.
+        ``labels`` should match the number of True entries.
+        Useful for filtering trials (e.g., congruent only).
+    chance_level : float or None
+        Theoretical chance level (e.g., 0.5 for binary, 0.25 for 4-class).
+        Used for reporting only. If None, computed as 1/n_classes.
     classifier : str
         'linear_svc', 'lda', or 'logistic'.
     n_folds : int
@@ -158,23 +249,24 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
     n_repeats : int
         Number of times to repeat the k-fold CV with different random
         splits. The final score is averaged across all repeats × folds.
-        Use 100 for publication-quality smoothness.
+        Use 10+ for publication-quality smoothness.
     resample_sfreq : float or None
         If set, resample epochs to this frequency before decoding.
-        Useful to speed up analysis (e.g., 64 Hz).
+        Useful to speed up analysis (e.g., 64 or 128 Hz).
     baseline : tuple or None
         Baseline window to apply (e.g., (-0.2, 0.0)). None = no baseline.
     picks : str
         Channel selection (default 'eeg').
     compute_distances : bool
         If True, also extract per-class decision function distances
-        from the SVM/logistic hyperplane (not available for LDA).
+        from the SVM/logistic hyperplane. Only supported for binary
+        classification (ignored with a warning for multiclass).
     compute_temporal_gen : bool
         If True, also compute the full time × time generalization matrix
         using GeneralizingEstimator.
     n_null_permutations : int
         Number of label-shuffle permutations. 0 = skip null.
-        1 = single null (fast, matches your Colab approach).
+        1 = single null (fast).
         >1 = multi-permutation null (slower, more rigorous).
     null_seed : int
         Base random seed for null permutations (incremented per perm).
@@ -193,14 +285,28 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
     """
     import gc
 
-    # --- Validate conditions ---
-    if len(conditions) != 2:
+    # --- Validate inputs ---
+    if conditions is None and labels is None:
         raise ValueError(
-            f"Exactly 2 conditions required for binary decoding, "
-            f"got {len(conditions)}: {list(conditions.keys())}"
+            "Provide either 'conditions' (event-code dict) or 'labels' "
+            "(array), not neither."
         )
-    cond_names = list(conditions.keys())
-    cond_a, cond_b = cond_names
+    if conditions is not None and labels is not None:
+        raise ValueError(
+            "Provide either 'conditions' or 'labels', not both."
+        )
+
+    use_labels = labels is not None
+
+    if conditions is not None:
+        if len(conditions) < 2:
+            raise ValueError(
+                f"At least 2 conditions required, "
+                f"got {len(conditions)}: {list(conditions.keys())}"
+            )
+        cond_names = list(conditions.keys())
+    else:
+        cond_names = None  # determined after loading
 
     out_path = get_decode_path(cfg, subject, window_name, analysis_name)
 
@@ -287,38 +393,94 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
                 print(f"  [{subject}] resampled: {original_sfreq} → "
                       f"{resample_sfreq} Hz")
 
-    # Select conditions
-    try:
-        epochs_a = _select_condition_epochs(epochs, conditions[cond_a])
-        epochs_b = _select_condition_epochs(epochs, conditions[cond_b])
-    except ValueError as e:
+    # ==============================================================
+    # Apply trial mask if provided
+    # ==============================================================
+    if trial_mask is not None:
+        trial_mask = np.asarray(trial_mask, dtype=bool)
+        if len(trial_mask) != len(epochs):
+            raise ValueError(
+                f"trial_mask length ({len(trial_mask)}) != number of "
+                f"epochs ({len(epochs)})"
+            )
+        epochs = epochs[trial_mask]
         if verbose:
-            print(f"  [{subject}] {analysis_name}: {e}")
-        del epochs; gc.collect()
-        return False, None
+            print(f"  [{subject}] trial_mask: {trial_mask.sum()}/{len(trial_mask)} "
+                  f"trials selected")
 
-    n_a, n_b = len(epochs_a), len(epochs_b)
-    if n_a == 0 or n_b == 0:
-        if verbose:
-            print(f"  [{subject}] {analysis_name}: empty condition "
-                  f"({cond_a}={n_a}, {cond_b}={n_b}) — skipping")
-        del epochs, epochs_a, epochs_b; gc.collect()
-        return False, None
+    # ==============================================================
+    # Build X, y from conditions (event codes) or labels (external)
+    # ==============================================================
+    if use_labels:
+        # --- Label-based: use all epochs, labels provided externally ---
+        labels = np.asarray(labels)
+        if len(labels) != len(epochs):
+            raise ValueError(
+                f"labels length ({len(labels)}) != number of epochs "
+                f"({len(epochs)})"
+            )
+        X = epochs.get_data(copy=True)
+        # Encode labels to integers if they aren't already
+        unique_labels = sorted(set(labels))
+        cond_names = [str(c) for c in unique_labels]
+        label_map = {c: i for i, c in enumerate(unique_labels)}
+        y = np.array([label_map[lbl] for lbl in labels])
+        n_trials = {str(c): int(np.sum(y == i))
+                    for i, c in enumerate(unique_labels)}
 
-    # Build X, y — then free epoch objects
-    X = np.concatenate([epochs_a.get_data(copy=True),
-                        epochs_b.get_data(copy=True)], axis=0)
-    y = np.array([0] * n_a + [1] * n_b)
+    else:
+        # --- Event-code-based: select epochs per condition ---
+        epoch_groups = {}
+        for cname, event_ids in conditions.items():
+            try:
+                ep = _select_condition_epochs(epochs, event_ids)
+            except ValueError as e:
+                if verbose:
+                    print(f"  [{subject}] {analysis_name}: {e}")
+                del epochs; gc.collect()
+                return False, None
+            if len(ep) == 0:
+                if verbose:
+                    print(f"  [{subject}] {analysis_name}: "
+                          f"no epochs for '{cname}' — skipping")
+                del epochs; gc.collect()
+                return False, None
+            epoch_groups[cname] = ep
+
+        X = np.concatenate(
+            [epoch_groups[c].get_data(copy=True) for c in cond_names],
+            axis=0,
+        )
+        y = np.concatenate(
+            [np.full(len(epoch_groups[c]), i)
+             for i, c in enumerate(cond_names)]
+        )
+        n_trials = {c: len(epoch_groups[c]) for c in cond_names}
+        del epoch_groups
+
+    n_classes = len(set(y))
     times = epochs.times.copy()
     sfreq = epochs.info["sfreq"]
 
-    del epochs, epochs_a, epochs_b
+    del epochs
     gc.collect()
 
+    # Compute chance level
+    if chance_level is None:
+        chance_level = 1.0 / n_classes
+
+    # Warn if distances requested for multiclass
+    if compute_distances and n_classes > 2:
+        if verbose:
+            print(f"  [{subject}] distances not supported for "
+                  f"{n_classes}-class — skipping distances")
+        needs_distances = False
+
     if verbose:
-        print(f"  [{subject}] {analysis_name}: {cond_a}={n_a}, "
-              f"{cond_b}={n_b}, {X.shape[1]} ch × {X.shape[2]} times "
-              f"({sfreq:.0f} Hz)")
+        trials_str = ", ".join(f"{c}={n}" for c, n in n_trials.items())
+        print(f"  [{subject}] {analysis_name}: {trials_str}, "
+              f"{n_classes} classes (chance={chance_level:.2f}), "
+              f"{X.shape[1]} ch × {X.shape[2]} times ({sfreq:.0f} Hz)")
 
     # ==============================================================
     # Start with existing result or empty metadata
@@ -329,7 +491,9 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
     result.update({
         "times": times,
         "conditions": cond_names,
-        "n_trials": {cond_a: n_a, cond_b: n_b},
+        "n_trials": n_trials,
+        "n_classes": n_classes,
+        "chance_level": chance_level,
         "analysis_name": analysis_name,
         "classifier": classifier,
         "n_folds": n_folds,
@@ -366,13 +530,19 @@ def decode_subject(cfg, subject, window_name, conditions, analysis_name,
                   f"{result['scores'].mean():.3f} ± "
                   f"{result['scores'].std():.3f}")
 
-    # --- Decision function distances (repeated CV) ---
+    # --- Decision function distances (binary only, repeated CV) ---
     if needs_distances:
         if classifier == "lda":
             if verbose:
                 print(f"  [{subject}] distances not supported for LDA — "
                       f"skipping")
+        elif n_classes > 2:
+            if verbose:
+                print(f"  [{subject}] distances only supported for binary "
+                      f"— skipping")
         else:
+            n_a = n_trials[cond_names[0]]
+            n_b = n_trials[cond_names[1]]
             all_dist = []
             for rep in range(n_repeats):
                 cv_rep = StratifiedKFold(n_splits=n_folds, shuffle=True,
@@ -641,15 +811,17 @@ def load_all_scores(cfg, window_name, analysis_name, verbose=True):
 # Parallel worker (module-level so joblib can pickle it on Windows)
 # ===================================================================
 
-def _decode_worker(cfg, subject, window_name, conditions, analysis_name,
+def _decode_worker(cfg, subject, window_name, analysis_name,
+                   conditions, chance_level,
                    classifier, n_folds, n_repeats, resample_sfreq, baseline, picks,
                    compute_distances, compute_temporal_gen,
                    n_null_permutations, null_seed, overwrite):
     """
     Wrapper for decode_subject used by parallel dispatch.
 
-    Returns a simple status tuple instead of the full result dict
-    (results are saved to disk by decode_subject).
+    Note: only supports event-code-based conditions (not labels),
+    since labels require per-subject behavioral data that must be
+    prepared in the notebook.
 
     Returns
     -------
@@ -658,7 +830,8 @@ def _decode_worker(cfg, subject, window_name, conditions, analysis_name,
     """
     try:
         ok, _ = decode_subject(
-            cfg, subject, window_name, conditions, analysis_name,
+            cfg, subject, window_name, analysis_name,
+            conditions=conditions, chance_level=chance_level,
             classifier=classifier, n_folds=n_folds, n_repeats=n_repeats,
             resample_sfreq=resample_sfreq, baseline=baseline,
             picks=picks,
@@ -667,7 +840,7 @@ def _decode_worker(cfg, subject, window_name, conditions, analysis_name,
             n_null_permutations=n_null_permutations,
             null_seed=null_seed,
             overwrite=overwrite,
-            verbose=True,  # each worker prints its own progress
+            verbose=True,
         )
         return (subject, "decoded" if ok else "skipped", "")
     except Exception as e:
@@ -679,6 +852,7 @@ def _decode_worker(cfg, subject, window_name, conditions, analysis_name,
 # ===================================================================
 
 def decode_all(cfg, window_name, conditions, analysis_name,
+               chance_level=None,
                classifier="linear_svc", n_folds=5, n_repeats=1,
                resample_sfreq=None, baseline=None, picks="eeg",
                compute_distances=False, compute_temporal_gen=False,
@@ -688,6 +862,10 @@ def decode_all(cfg, window_name, conditions, analysis_name,
     """
     Run temporal decoding for every included subject.
 
+    Uses event-code-based conditions. For label-based decoding (where
+    labels come from behavioral data), loop over subjects manually
+    and call ``decode_subject`` with the ``labels`` parameter.
+
     Parameters
     ----------
     cfg : SimpleNamespace
@@ -695,17 +873,16 @@ def decode_all(cfg, window_name, conditions, analysis_name,
     window_name : str
         Epoch window name.
     conditions : dict
-        Two conditions: {label: [event_codes]}.
+        Conditions as {label: [event_codes]}. Two or more conditions.
     analysis_name : str
         Label for filename.
+    chance_level : float or None
+        Theoretical chance level. If None, computed as 1/n_conditions.
     n_jobs : int
         Number of parallel workers for subject-level parallelism.
         1 = sequential (clean verbose output, good for debugging).
         -1 = use all available CPU cores.
         N > 1 = use N cores.
-        Note: parallelism is at the SUBJECT level, not within-subject.
-        Each subject runs on a single core, but multiple subjects run
-        simultaneously.
     classifier, n_folds, n_repeats, resample_sfreq, baseline, picks,
     compute_distances, compute_temporal_gen, n_null_permutations,
     null_seed, overwrite, verbose :
@@ -723,8 +900,13 @@ def decode_all(cfg, window_name, conditions, analysis_name,
     summary = {"decoded": [], "skipped": [], "failed": []}
 
     cond_names = list(conditions.keys())
+    n_classes = len(cond_names)
+    if chance_level is None:
+        chance_level = 1.0 / n_classes
+
     if verbose:
-        print(f"MVPA temporal decoding: {cond_names[0]} vs {cond_names[1]}")
+        print(f"MVPA temporal decoding: {' vs '.join(cond_names)} "
+              f"({n_classes}-class, chance={chance_level:.2f})")
         print(f"Window: {window_name}, Classifier: {classifier}, "
               f"Folds: {n_folds}, Repeats: {n_repeats}")
         if resample_sfreq:
@@ -741,8 +923,9 @@ def decode_all(cfg, window_name, conditions, analysis_name,
     # --- Common kwargs for decode_subject ---
     common_kwargs = dict(
         window_name=window_name,
-        conditions=conditions,
         analysis_name=analysis_name,
+        conditions=conditions,
+        chance_level=chance_level,
         classifier=classifier,
         n_folds=n_folds,
         n_repeats=n_repeats,
@@ -779,7 +962,6 @@ def decode_all(cfg, window_name, conditions, analysis_name,
         if verbose:
             print(f"\nRunning in parallel ({n_jobs} workers)...\n")
 
-        # verbose=10 prints per-task completion: "Done 5 out of 30"
         joblib_verbosity = 10 if verbose else 0
         results = Parallel(n_jobs=n_jobs, backend="loky",
                            verbose=joblib_verbosity)(

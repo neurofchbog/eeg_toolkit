@@ -128,6 +128,7 @@ from eeg_toolkit.mvpa import (
     cross_decode_all,
     load_all_cross_scores,
     get_cross_decode_path,
+    align_epochs_behavior,
 )
 
 from eeg_toolkit.rsa import ( 

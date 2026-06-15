@@ -542,7 +542,7 @@ def plot_tfr_topomaps(cfg, cfg_tfr, window_name, conditions=None,
             tmin=tmin, tmax=tmax, fmin=fmin, fmax=fmax,
             vlim=vlim, cmap=cmap,
             axes=axes[0, i], show=False, colorbar=(i == ncols - 1),
-            verbose="WARNING",
+            
         )
         axes[0, i].set_title(label)
 

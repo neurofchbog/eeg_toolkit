@@ -79,7 +79,7 @@ def build_adjacency(eeg_channels, n_times, montage="standard_1020"):
         mne.channels.make_standard_montage(montage), match_case=False
     )
     ch_adj, _ = mne.channels.find_ch_adjacency(info, ch_type="eeg")
-    adjacency = mne.stats.combine_adjacency(n_times, ch_adj)
+    adjacency = mne.stats.combine_adjacency(ch_adj,n_times)
     print(
         f"Adjacency: {len(eeg_channels)} channels × {n_times} time points "
         f"= {adjacency.shape[0]} nodes"
@@ -209,7 +209,7 @@ def run_cluster_test(data_a, data_b, adjacency, label="",
     -------
     results : dict with keys:
         t_obs, clusters, cluster_p_values, significant_clusters,
-        n_subjects, label
+        diff, n_subjects, label, threshold
     """
     from scipy.stats import t as t_dist
 
@@ -251,8 +251,11 @@ def run_cluster_test(data_a, data_b, adjacency, label="",
         "clusters": clusters,
         "cluster_p_values": cluster_pv,
         "significant_clusters": sig,
+        "diff": diff,
         "n_subjects": n_subj,
         "label": label,
+        "threshold": threshold,
+        "n_permutations": n_permutations,
     }
 
 
@@ -262,7 +265,16 @@ def run_cluster_test(data_a, data_b, adjacency, label="",
 
 def describe_clusters(results, eeg_channels, times, label=None):
     """
-    Pretty-print significant cluster details: channels, time span, size.
+    Pretty-print significant cluster details with three effect size
+    estimates following FieldTrip/Oostenveld recommendations.
+
+    Effect sizes reported (all paired Cohen's d):
+        1. d_cluster   — averaged over the cluster mask (most closely
+                          related to the cluster inference)
+        2. d_rectangle — averaged over the circumscribed rectangle
+                          (conservative lower bound, easy to report)
+        3. d_max       — maximum single channel-timepoint effect
+                          (upper bound)
 
     Parameters
     ----------
@@ -272,28 +284,106 @@ def describe_clusters(results, eeg_channels, times, label=None):
     times : np.ndarray
     label : str, optional
         Override results['label'].
+
+    Returns
+    -------
+    list of dict
+        One dict per significant cluster with all reporting metrics.
     """
     label = label or results.get("label", "")
     sig = results.get("significant_clusters", [])
+    t_obs = results.get("t_obs")       # (n_ch, n_times)
+    diff = results.get("diff")         # (n_subj, n_ch, n_times)
 
     print(f"\n{'=' * 60}")
     print(f"CLUSTERS: {label}")
+    if "n_permutations" in results:
+        print(f"  {results['n_subjects']} subjects, "
+              f"threshold t = {results.get('threshold', '?'):.2f}, "
+              f"{results['n_permutations']} permutations")
     print(f"{'=' * 60}")
 
     if not sig:
         print("No significant clusters")
-        return
+        return []
+
+    cluster_info = []
 
     for i, (idx, p, mask) in enumerate(sig, 1):
         ch_idx, t_idx = np.where(mask)
         ch_names = sorted(set(eeg_channels[c] for c in ch_idx))
+        ch_unique = np.unique(ch_idx)
         t_unique = np.unique(t_idx)
         t0, t1 = times[t_unique[0]], times[t_unique[-1]]
+        size = int(mask.sum())
+
+        # Cluster mass: sum of t-values within the cluster
+        tmass = float(t_obs[mask].sum()) if t_obs is not None else None
+
+        d_cluster = None
+        d_rectangle = None
+        d_max = None
+        max_ch = None
+        max_time = None
+
+        if diff is not None:
+            n_subj = diff.shape[0]
+
+            # 1. Cohen's d over cluster mask
+            subj_means = np.array([
+                diff[s][mask].mean() for s in range(n_subj)
+            ])
+            d_cluster = float(subj_means.mean() / subj_means.std())
+
+            # 2. Cohen's d over circumscribed rectangle
+            rect_diff = diff[:, ch_unique.min():ch_unique.max() + 1,
+                             t_unique.min():t_unique.max() + 1]
+            rect_subj = rect_diff.mean(axis=(1, 2))  # (n_subj,)
+            d_rectangle = float(rect_subj.mean() / rect_subj.std())
+
+            # 3. Maximum Cohen's d (single channel-timepoint)
+            # Compute paired d at every ch × time within the cluster span
+            rect_d = rect_diff.mean(axis=0) / rect_diff.std(axis=0)
+            max_idx = np.unravel_index(
+                np.nanargmax(np.abs(rect_d)), rect_d.shape
+            )
+            d_max = float(rect_d[max_idx])
+            max_ch = eeg_channels[ch_unique.min() + max_idx[0]]
+            max_time = float(times[t_unique.min() + max_idx[1]])
+
+        info = {
+            "channels": ch_names,
+            "n_channels": len(ch_names),
+            "time_start": float(t0),
+            "time_end": float(t1),
+            "duration": float(t1 - t0),
+            "size": size,
+            "tmass": tmass,
+            "d_cluster": d_cluster,
+            "d_rectangle": d_rectangle,
+            "d_max": d_max,
+            "d_max_channel": max_ch,
+            "d_max_time": max_time,
+            "p_value": float(p),
+        }
+        cluster_info.append(info)
 
         print(f"\n--- Cluster {i} (p = {p:.4f}) ---")
         print(f"Channels ({len(ch_names)}): {', '.join(ch_names)}")
         print(f"Time span: {t0:.3f} s to {t1:.3f} s ({t1 - t0:.3f} s)")
-        print(f"Cluster size: {int(mask.sum())} points")
+        print(f"Cluster size: {size} points")
+        if tmass is not None:
+            print(f"Cluster mass (tmass): {tmass:.3f}")
+        if d_cluster is not None:
+            print(f"Effect sizes (paired Cohen's d):")
+            print(f"  d_cluster    = {d_cluster:.3f}  "
+                  f"(averaged over cluster mask)")
+            print(f"  d_rectangle  = {d_rectangle:.3f}  "
+                  f"(circumscribed rectangle — lower bound)")
+            print(f"  d_max        = {d_max:.3f}  "
+                  f"(max at {max_ch}, {max_time:.3f} s — upper bound)")
+
+    return cluster_info
 
 
 # ===================================================================
@@ -305,7 +395,8 @@ def plot_cluster_results(data_a, data_b, results, eeg_channels, times,
                          color_a="#2E86C1", color_b="#E74C3C",
                          roi=None, montage="standard_1020",
                          tmin=None, tmax=None,
-                         figsize=(10, 8), title=None):
+                         figsize=(10, 8), title=None,
+                         topo_pos=None):
     """
     Stacked panel figure: condition traces (top) + difference wave (bottom)
     with topomap inset and cluster time bar.
@@ -327,6 +418,10 @@ def plot_cluster_results(data_a, data_b, results, eeg_channels, times,
     montage : str
     tmin, tmax : float, optional
         Plot window. None = full range.
+    topo_pos : tuple of 4 floats, optional
+        (x, y, width, height) in axes fraction coordinates for the topomap
+        inset. Default places it upper-right. Example: (0.05, 0.55, 0.18, 0.35)
+        to place it in the upper-left area.
     """
     import matplotlib.pyplot as plt
     import matplotlib.gridspec as gridspec
@@ -411,11 +506,19 @@ def plot_cluster_results(data_a, data_b, results, eeg_channels, times,
     ax_top.legend(loc="best", fontsize=9, framealpha=0.85)
  
     # Topomap inset
-    inset = inset_axes(
-        ax_top, width="18%", height="35%", loc="upper right",
-        bbox_to_anchor=(-0.22, -0.02, 1.0, 1.0),
-        bbox_transform=ax_top.transAxes,
-    )
+    if topo_pos is not None:
+        inset = inset_axes(
+            ax_top, width="100%", height="100%",
+            bbox_to_anchor=topo_pos,
+            bbox_transform=ax_top.transAxes,
+            loc="center",
+        )
+    else:
+        inset = inset_axes(
+            ax_top, width="18%", height="35%", loc="upper right",
+            bbox_to_anchor=(-0.22, -0.02, 1.0, 1.0),
+            bbox_transform=ax_top.transAxes,
+        )
     topo_mask = None
     if sig_channels:
         topo_mask = np.array([ch in sig_channels for ch in eeg_channels])
