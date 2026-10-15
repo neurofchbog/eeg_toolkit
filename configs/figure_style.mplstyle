@@ -1,0 +1,35 @@
+# APA 7th edition figure style
+# Usage: plt.style.use('../../configs/figure_style.mplstyle')
+
+# Font
+font.family         : sans-serif
+font.sans-serif     : Arial, Helvetica, DejaVu Sans
+font.size           : 10
+
+# Axes
+axes.titlesize      : 12
+axes.labelsize      : 10
+axes.linewidth      : 0.8
+axes.spines.top     : True
+axes.spines.right   : True
+
+# Ticks
+xtick.labelsize     : 9
+ytick.labelsize     : 9
+xtick.major.width   : 0.8
+ytick.major.width   : 0.8
+xtick.major.size    : 4
+ytick.major.size    : 4
+
+# Legend
+legend.fontsize     : 9
+legend.framealpha   : 0.85
+
+# Lines
+lines.linewidth     : 1.5
+
+# Figure
+figure.dpi          : 150
+savefig.dpi         : 600
+savefig.bbox        : tight
+savefig.pad_inches  : 0.05

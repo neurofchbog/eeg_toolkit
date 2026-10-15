@@ -135,4 +135,12 @@ from eeg_toolkit.rsa import (
     compute_rdms_all,
     load_all_rdms,
 )
+
+from eeg_toolkit.lateralization import (
+    compute_lateralization,
+    cluster_test_1d,
+    describe_clusters_1d,
+    window_mean_test,
+)
+from eeg_toolkit.thesis_style import apply_style, C as ThesisColors
 __version__ = "0.1.0"
